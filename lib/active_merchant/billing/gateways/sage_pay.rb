@@ -335,10 +335,11 @@ module ActiveMerchant #:nodoc:
       end
 
       def post_data(action, parameters = {})
+        #TODO: Implement detection of simulator mode to change VPSProtocol
         parameters.update(
           :Vendor => @options[:login],
           :TxType => TRANSACTIONS[action],
-          :VPSProtocol => "3.00"
+          :VPSProtocol => "2.23"
         )
 
         if(application_id && (application_id != Gateway.application_id))
