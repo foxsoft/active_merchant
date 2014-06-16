@@ -241,7 +241,8 @@ module ActiveMerchant #:nodoc:
 
       def add_token_details(post, token, options)
         add_token(post, token)
-        add_pair(post, :StoreToken, options[:customer])
+        add_pair(post, :StoreToken, options[:store_token])
+        add_pair(post, :CV2, options[:token_cv2])
       end
 
       def add_token(post, token)
