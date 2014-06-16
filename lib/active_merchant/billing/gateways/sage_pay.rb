@@ -322,6 +322,7 @@ module ActiveMerchant #:nodoc:
           when :store then 'directtoken'
           else TRANSACTIONS[action].downcase
         end
+        logger.info endpoint.inspect
         "#{test? ? self.test_url : self.live_url}/#{endpoint}.vsp"
       end
 
