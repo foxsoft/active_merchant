@@ -282,7 +282,7 @@ module ActiveMerchant #:nodoc:
 
       def commit(action, parameters)
         response = parse( ssl_post(url_for(action), post_data(action, parameters)) )
-
+        logger.info response.inspect
         Response.new(response["Status"] == APPROVED, message_from(response), response,
           :test => test?,
           :authorization => authorization_from(response, parameters, action),
