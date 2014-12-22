@@ -97,6 +97,12 @@ module ActiveMerchant #:nodoc:
         commit(:capture, post)
       end
 
+      def three_d_secure_callback(md, pares)
+        post = {}
+        add_three_d_secure_callback(post)
+        commit(:three_d_callback, post)
+      end
+
       def void(identification, options = {})
         post = {}
 
@@ -146,6 +152,11 @@ module ActiveMerchant #:nodoc:
         add_pair(post, :VPSTxId, transaction_id)
         add_pair(post, :TxAuthNo, authorization)
         add_pair(post, :SecurityKey, security_key)
+      end
+
+      def add_three_d_secure_callback(post, md, pares)
+        add_pair(post, :MD, md)
+        add_pair(post, :PARes, pares)
       end
 
       def add_credit_reference(post, identification)
@@ -320,6 +331,7 @@ module ActiveMerchant #:nodoc:
         endpoint = case action
           when :purchase, :authorization then "vspdirect-register"
           when :store then 'directtoken'
+          when :three_d_callback then 'direct3dcallback'
           else TRANSACTIONS[action].downcase
         end
         "#{test? ? self.test_url : self.live_url}/#{endpoint}.vsp"
