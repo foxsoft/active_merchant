@@ -99,7 +99,7 @@ module ActiveMerchant #:nodoc:
 
       def three_d_secure_callback(md, pares)
         post = {}
-        add_three_d_secure_callback(post)
+        add_three_d_secure_callback(post, md, pares)
         commit(:three_d_callback, post)
       end
 
