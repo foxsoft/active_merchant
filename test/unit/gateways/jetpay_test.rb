@@ -12,7 +12,6 @@ class JetpayTest < Test::Unit::TestCase
     @amount = 100
 
     @options = {
-      :order_id => '1',
       :billing_address => address(:country => 'US'),
       :shipping_address => address(:country => 'US'),
       :email => 'test@test.com',
@@ -65,9 +64,6 @@ class JetpayTest < Test::Unit::TestCase
   end
 
   def test_successful_void
-    # no need for csv
-    card = credit_card('4242424242424242', :verification_value => nil)
-
     @gateway.expects(:ssl_post).returns(successful_void_response)
 
     assert response = @gateway.void('010327153x17T10418;502F7B;500')

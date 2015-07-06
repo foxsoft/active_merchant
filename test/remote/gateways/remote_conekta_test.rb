@@ -25,14 +25,17 @@ class RemoteConektaTest < Test::Unit::TestCase
     )
 
     @options = {
+      :device_fingerprint => "41l9l92hjco6cuekf0c7dq68v4",
       description: 'Blue clip',
-      address1: "Rio Missisipi #123",
-      address2: "Paris",
-      city: "Guerrero",
-      country: "Mexico",
-      zip: "5555",
-      name: "Mario Reyes",
-      phone: "12345678",
+      billing_address: {
+        address1: "Rio Missisipi #123",
+        address2: "Paris",
+        city: "Guerrero",
+        country: "Mexico",
+        zip: "5555",
+        name: "Mario Reyes",
+        phone: "12345678",
+      },
       carrier: "Estafeta"
     }
   end
@@ -62,7 +65,7 @@ class RemoteConektaTest < Test::Unit::TestCase
   def test_unsuccessful_refund
     assert response = @gateway.refund(@amount, "1", @options)
     assert_failure response
-    assert_equal "The resource was not found.", response.message
+    assert_equal "El recurso no ha sido encontrado.", response.message
   end
 
   def test_successful_authorize
@@ -89,13 +92,51 @@ class RemoteConektaTest < Test::Unit::TestCase
   def test_unsuccessful_capture
     assert response = @gateway.capture(@amount, "1", @options)
     assert_failure response
-    assert_equal "The resource was not found.", response.message
+    assert_equal "El recurso no ha sido encontrado.", response.message
+  end
+
+  def test_successful_purchase_passing_more_details
+    more_options = {
+      customer: "TheCustomerName",
+      shipping_address: {
+        address1: "33 Main Street",
+        address2: "Apartment 3",
+        city: "Wanaque",
+        state: "NJ",
+        country: "USA",
+        zip: "01085",
+      },
+      line_items: [
+        {
+          rname: "Box of Cohiba S1s",
+          description: "Imported From Mex.",
+          unit_price: 20000,
+          quantity: 1,
+          sku: "cohb_s1",
+          type: "other_human_consumption"
+        },
+        {
+          name: "Basic Toothpicks",
+          description: "Wooden",
+          unit_price: 100,
+          quantity: 250,
+          sku: "tooth_r3",
+          type: "Extra pointy"
+        }
+      ]
+    }
+    assert response = @gateway.purchase(@amount, @credit_card, @options.merge(more_options))
+    assert_success response
+    assert_equal "Wanaque", response.params['details']['shipment']['address']['city']
+    assert_equal "Wooden", response.params['details']['line_items'][-1]['description']
+    assert_equal "TheCustomerName", response.params['details']['name']
+    assert_equal "Guerrero", response.params['details']['billing_address']['city']
   end
 
   def test_invalid_key
     gateway = ConektaGateway.new(key: 'invalid_token')
     assert response = gateway.purchase(@amount, @credit_card, @options)
     assert_failure response
-    assert_equal "Unrecognized access key.", response.message
+    assert_equal "Acceso no autorizado.", response.message
   end
 end

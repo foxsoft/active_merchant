@@ -221,6 +221,12 @@ class CreditCardTest < Test::Unit::TestCase
     assert_valid card
   end
 
+  def test_bogus_cards_are_not_valid_without_verification_value
+    CreditCard.require_verification_value = true
+    card = credit_card('1', brand: 'bogus', verification_value: nil)
+    assert_not_valid card
+  end
+
   def test_should_require_valid_start_date_for_solo_or_switch
     @solo.start_month  = nil
     @solo.start_year   = nil
@@ -425,5 +431,13 @@ class CreditCardTest < Test::Unit::TestCase
     assert_equal 1, card.start_month
     card.start_year = "1"
     assert_equal 1, card.start_year
+  end
+
+  def test_should_report_as_emv_if_icc_data_present
+    assert CreditCard.new(icc_data: "E480").emv?
+  end
+
+  def test_should_not_report_as_emv_if_icc_data_not_present
+    refute CreditCard.new.emv?
   end
 end

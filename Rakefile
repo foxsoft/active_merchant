@@ -17,7 +17,7 @@ require 'support/outbound_hosts'
 require 'bundler/gem_tasks'
 
 task :tag_release do
-  system "git tag -a v#{ActiveMerchant::VERSION} -m 'Tagging #{ActiveMerchant::VERSION}'"
+  system "git tag 'v#{ActiveMerchant::VERSION}'"
   system "git push --tags"
 end
 
@@ -26,17 +26,16 @@ task :default => 'test:units'
 task :test => 'test:units'
 
 namespace :test do
-
   Rake::TestTask.new(:units) do |t|
     t.pattern = 'test/unit/**/*_test.rb'
-    t.ruby_opts << '-rubygems'
+    t.ruby_opts << '-rubygems -w'
     t.libs << 'test'
     t.verbose = true
   end
 
   Rake::TestTask.new(:remote) do |t|
     t.pattern = 'test/remote/**/*_test.rb'
-    t.ruby_opts << '-rubygems'
+    t.ruby_opts << '-rubygems -w'
     t.libs << 'test'
     t.verbose = true
   end
@@ -77,7 +76,19 @@ namespace :gateways do
 
   desc 'Print the list of destination hosts with port'
   task :hosts do
-    OutboundHosts.list
+    hosts, invalid_lines = OutboundHosts.list
+
+    hosts.each do |host|
+      puts host
+    end
+
+    unless invalid_lines.empty?
+      puts
+      puts "Unable to parse:"
+      invalid_lines.each do |line|
+        puts line
+      end
+    end
   end
 
   desc 'Test that gateways allow SSL verify_peer'

@@ -18,7 +18,10 @@ module ActiveMerchant #:nodoc:
       # * <tt>:password</tt> -- Password (REQUIRED)
       # * <tt>:merchant_gateway_name</tt> -- Site name (REQUIRED)
       # * <tt>:station</tt> -- Station (defaults to "WEB")
-      # * <tt>:default_item_code</tt> -- Item code (defaults to "FEE")
+      # * <tt>:custcode</tt> -- Customer code (defaults to
+      #   "ActiveMerchant/#{ActiveMerchant::VERSION}")
+      # * <tt>:default_item_code</tt> -- Default item code (defaults to "FEE",
+      #   can be overridden on a per-transaction basis with options[:item_code])
       def initialize(options = {})
         requires!(
           options,
@@ -31,34 +34,39 @@ module ActiveMerchant #:nodoc:
         super
       end
 
-      def purchase(money, payment_object, fields = {})
+      def purchase(money, payment_object, options = {})
         post = {}
         add_creditcard(post, payment_object)
-        add_invoice(post, fields)
-        add_address(post, fields)
-        add_customer_data(post, fields)
+        add_invoice(post, options)
+        add_address(post, options)
+        add_customer_data(post, options)
         commit('SALE', money, post)
       end
 
-      def refund(money, identification, fields = {})
-        fields[:origtx]  = identification
-        commit('REFUND', money, fields)
+      def refund(money, identification, options = {})
+        post = {}
+        post[:origtx]  = identification
+        add_invoice(post, options)
+        commit('REFUND', money, post)
       end
 
       private
 
       def commit(action, money, fields)
         fields[:amount] = amount(money)
-        url = live_url + @options[:merchant_gateway_name]
-        response = parse(ssl_post(url, post_data(action, fields)))
+        url = live_url + CGI.escape(@options[:merchant_gateway_name])
+        raw_response = ssl_post(url, post_data(action, fields))
+        parsed_response = parse(raw_response)
 
-        success = (response[:result] == '0')
+        return unparsable_response(raw_response) unless parsed_response
+
+        success = (parsed_response[:result] == '0')
         Response.new(
           success,
-          CASHNET_CODES[response[:result]],
-          response,
+          CASHNET_CODES[parsed_response[:result]],
+          parsed_response,
           test:          test?,
-          authorization: (success ? response[:tx] : '')
+          authorization: (success ? parsed_response[:tx] : '')
         )
       end
 
@@ -69,8 +77,7 @@ module ActiveMerchant #:nodoc:
         post[:operator]       = @options[:operator]
         post[:password]       = @options[:password]
         post[:station]        = (@options[:station] || "WEB")
-        post[:itemcode]       = (options[:item_code] || @options[:default_item_code])
-        post[:custcode]       = "ActiveMerchant/#{ActiveMerchant::VERSION}"
+        post[:custcode]       = (@options[:custcode] || "ActiveMerchant/#{ActiveMerchant::VERSION}")
         post.merge(parameters).collect { |key, value| "#{key}=#{CGI.escape(value.to_s)}" }.join("&")
       end
 
@@ -79,10 +86,13 @@ module ActiveMerchant #:nodoc:
         post[:cid]             = creditcard.verification_value
         post[:expdate]         = expdate(creditcard)
         post[:card_name_g]     = creditcard.name
+        post[:fname]           = creditcard.first_name
+        post[:lname]           = creditcard.last_name
       end
 
       def add_invoice(post, options)
         post[:order_number]    = options[:order_id] if options[:order_id].present?
+        post[:itemcode]       = (options[:item_code] || @options[:default_item_code])
       end
 
       def add_address(post, options)
@@ -106,8 +116,10 @@ module ActiveMerchant #:nodoc:
       end
 
       def parse(body)
-        response_data = body.match(/<cngateway>(.*)<\/cngateway>/)[1]
-        Hash[CGI::parse(response_data).map{|k,v| [k.to_sym,v.first]}]
+        match = body.match(/<cngateway>(.*)<\/cngateway>/)
+        return nil unless match
+
+        Hash[CGI::parse(match[1]).map{|k,v| [k.to_sym,v.first]}]
       end
 
       def handle_response(response)
@@ -117,6 +129,12 @@ module ActiveMerchant #:nodoc:
           return ssl_get(URI.parse(response['location']))
         end
         raise ResponseError.new(response)
+      end
+
+      def unparsable_response(raw_response)
+        message = "Unparsable response received from Cashnet. Please contact Cashnet if you continue to receive this message."
+        message += " (The raw response returned by the API was #{raw_response.inspect})"
+        return Response.new(false, message)
       end
 
       CASHNET_CODES = {

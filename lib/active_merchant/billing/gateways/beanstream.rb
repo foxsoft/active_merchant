@@ -1,4 +1,4 @@
-require File.dirname(__FILE__) + '/beanstream/beanstream_core'
+require 'active_merchant/billing/gateways/beanstream/beanstream_core'
 
 module ActiveMerchant #:nodoc:
   module Billing #:nodoc:
@@ -97,6 +97,10 @@ module ActiveMerchant #:nodoc:
         add_original_amount(post, amount)
         add_transaction_type(post, void_action(type))
         commit(post)
+      end
+
+      def success?(response)
+        response[:trnApproved] == '1' || response[:responseCode] == '1'
       end
 
       def recurring(money, source, options = {})

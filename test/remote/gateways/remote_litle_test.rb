@@ -37,6 +37,15 @@ class RemoteLitleTest < Test::Unit::TestCase
       number: "4457010100000008",
       verification_value: "992"
     )
+    @credit_card_nsf = CreditCard.new(
+      first_name: "Joe",
+      last_name: "Green",
+      month: "06",
+      year: "2012",
+      brand: "visa",
+      number: "4488282659650110",
+      verification_value: "992"
+    )
   end
 
   def test_successful_authorization
@@ -82,6 +91,12 @@ class RemoteLitleTest < Test::Unit::TestCase
       billing_address: {
       }
     })
+    assert_success response
+    assert_equal 'Approved', response.message
+  end
+
+  def test_successful_purchase_with_debt_repayment_flag
+    assert response = @gateway.purchase(10010, @credit_card1, @options.merge(debt_repayment: true))
     assert_success response
     assert_equal 'Approved', response.message
   end
@@ -223,6 +238,37 @@ class RemoteLitleTest < Test::Unit::TestCase
     assert response = @gateway.purchase(10010, token)
     assert_success response
     assert_equal 'Approved', response.message
+  end
+
+  def test_successful_verify
+    assert response = @gateway.verify(@credit_card1, @options)
+    assert_success response
+    assert_equal 'Approved', response.message
+    assert_success response.responses.last, "The void should succeed"
+  end
+
+  def test_unsuccessful_verify
+    assert response = @gateway.verify(@credit_card_nsf, @options)
+    assert_failure response
+    assert_match %r{Insufficient Funds}, response.message
+  end
+
+  def test_successful_purchase_with_dynamic_descriptors
+    assert response = @gateway.purchase(10010, @credit_card1, @options.merge(
+      descriptor_name: "SuperCompany",
+      descriptor_phone: "9193341121",
+    ))
+    assert_success response
+    assert_equal 'Approved', response.message
+  end
+
+  def test_unsuccessful_xml_schema_validation
+    credit_card = CreditCard.new(@credit_card_hash.merge(:number => '123456'))
+    assert store_response = @gateway.store(credit_card, :order_id => '51')
+
+    assert_failure store_response
+    assert_match(/^Error validating xml data against the schema/, store_response.message)
+    assert_equal '1', store_response.params['response']
   end
 
 end

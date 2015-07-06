@@ -10,15 +10,16 @@ module ActiveMerchant #:nodoc:
     #
     # The standard list of gateway functions that most concrete gateway subclasses implement is:
     #
-    # * <tt>purchase(money, creditcard, options = {})</tt>
-    # * <tt>authorize(money, creditcard, options = {})</tt>
+    # * <tt>purchase(money, credit_card, options = {})</tt>
+    # * <tt>authorize(money, credit_card, options = {})</tt>
     # * <tt>capture(money, authorization, options = {})</tt>
     # * <tt>void(identification, options = {})</tt>
-    # * <tt>credit(money, identification, options = {})</tt>
+    # * <tt>refund(money, identification, options = {})</tt>
+    # * <tt>verify(credit_card, options = {})</tt>
     #
     # Some gateways also support features for storing credit cards:
     #
-    # * <tt>store(creditcard, options = {})</tt>
+    # * <tt>store(credit_card, options = {})</tt>
     # * <tt>unstore(identification, options = {})</tt>
     #
     # === Gateway Options
@@ -49,7 +50,7 @@ module ActiveMerchant #:nodoc:
     #
     # == Implmenting new gateways
     #
-    # See the {ActiveMerchant Guide to Contributing}[https://github.com/Shopify/active_merchant/wiki/Contributing]
+    # See the {ActiveMerchant Guide to Contributing}[https://github.com/activemerchant/active_merchant/wiki/Contributing]
     #
     class Gateway
       include PostsData
@@ -57,8 +58,39 @@ module ActiveMerchant #:nodoc:
 
       DEBIT_CARDS = [ :switch, :solo ]
       CURRENCIES_WITHOUT_FRACTIONS = [ 'BIF', 'BYR', 'CLP', 'CVE', 'DJF', 'GNF', 'HUF', 'ISK', 'JPY', 'KMF', 'KRW', 'PYG', 'RWF', 'TWD', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF' ]
+
       CREDIT_DEPRECATION_MESSAGE = "Support for using credit to refund existing transactions is deprecated and will be removed from a future release of ActiveMerchant. Please use the refund method instead."
       RECURRING_DEPRECATION_MESSAGE = "Recurring functionality in ActiveMerchant is deprecated and will be removed in a future version. Please contact the ActiveMerchant maintainers if you have an interest in taking ownership of a separate gem that continues support for it."
+
+      # == Standardized Error Codes
+      #
+      # :incorrect_number - Card number does not comply with ISO/IEC 7812 numbering standard
+      # :invalid_number - Card number was not matched by processor
+      # :invalid_expiry_date - Expiry date deos not match correct formatting
+      # :invalid_cvc - Security codes does not match correct format (3-4 digits)
+      # :expired_card - Card number is expired
+      # :incorrect_cvc - Secerity code was not matched by the processor
+      # :incorrect_zip - Zip code is not in correct format
+      # :incorrect_address - Billing address info was not matched by the processor
+      # :card_declined - Card number declined by processor
+      # :processing_error - Processor error
+      # :call_issuer - Transaction requires voice authentication, call issuer
+      # :pickup_card - Issuer requests that you pickup the card from merchant
+
+      STANDARD_ERROR_CODE = {
+        :incorrect_number => 'incorrect_number',
+        :invalid_number => 'invalid_number',
+        :invalid_expiry_date => 'invalid_expiry_date',
+        :invalid_cvc => 'invalid_cvc',
+        :expired_card => 'expired_card',
+        :incorrect_cvc => 'incorrect_cvc',
+        :incorrect_zip => 'incorrect_zip',
+        :incorrect_address => 'incorrect_address',
+        :card_declined => 'card_declined',
+        :processing_error => 'processing_error',
+        :call_issuer => 'call_issuer',
+        :pickup_card => 'pick_up_card'
+      }
 
       cattr_reader :implementations
       @@implementations = []
@@ -96,7 +128,7 @@ module ActiveMerchant #:nodoc:
 
       # The application making the calls to the gateway
       # Useful for things like the PayPal build notation (BN) id fields
-      superclass_delegating_accessor :application_id
+      class_attribute :application_id, instance_writer: false
       self.application_id = 'ActiveMerchant'
 
       attr_reader :options
@@ -109,6 +141,10 @@ module ActiveMerchant #:nodoc:
       def self.card_brand(source)
         result = source.respond_to?(:brand) ? source.brand : source.type
         result.to_s.downcase
+      end
+
+      def self.non_fractional_currency?(currency)
+        CURRENCIES_WITHOUT_FRACTIONS.include?(currency.to_s)
       end
 
       def self.supported_countries=(country_codes)
@@ -145,6 +181,19 @@ module ActiveMerchant #:nodoc:
         (@options.has_key?(:test) ? @options[:test] : Base.test?)
       end
 
+      # Does this gateway know how to scrub sensitive information out of HTTP transcripts?
+      def supports_scrubbing?
+        false
+      end
+
+      def scrub(transcript)
+        raise RuntimeError.new("This gateway does not support scrubbing.")
+      end
+
+      def supports_network_tokenization?
+        false
+      end
+
       protected # :nodoc: all
 
       def normalize(field)
@@ -165,6 +214,16 @@ module ActiveMerchant #:nodoc:
           :platform => RUBY_PLATFORM,
           :publisher => 'active_merchant'
         })
+      end
+
+      def strip_invalid_xml_chars(xml)
+        begin
+          REXML::Document.new(xml)
+        rescue REXML::ParseException
+          xml = xml.gsub(/&(?!(?:[a-z]+|#[0-9]+|x[a-zA-Z0-9]+);)/, '&amp;')
+        end
+
+        xml
       end
 
       private # :nodoc: all
@@ -196,7 +255,7 @@ module ActiveMerchant #:nodoc:
       def localized_amount(money, currency)
         amount = amount(money)
 
-        return amount unless non_fractional_currency?(currency)
+        return amount unless Gateway.non_fractional_currency?(currency)
 
         if self.money_format == :cents
           sprintf("%.0f", amount.to_f / 100)
@@ -205,12 +264,13 @@ module ActiveMerchant #:nodoc:
         end
       end
 
-      def non_fractional_currency?(currency)
-        CURRENCIES_WITHOUT_FRACTIONS.include?(currency.to_s)
-      end
-
       def currency(money)
         money.respond_to?(:currency) ? money.currency : self.default_currency
+      end
+
+      def truncate(value, max_size)
+        return nil unless value
+        value.to_s[0, max_size]
       end
 
       def requires_start_date_or_issue_number?(credit_card)
