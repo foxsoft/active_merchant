@@ -24,7 +24,31 @@ class RemoteTransFirstTest < Test::Unit::TestCase
     @gateway.void(response.authorization)
   end
 
+  def test_successful_purchase_no_address
+    @options.delete(:billing_address)
+    assert response = @gateway.purchase(@amount, @credit_card, @options)
+    assert response.test?
+    assert_success response
+    assert !response.authorization.blank?
+
+    @gateway.void(response.authorization)
+  end
+
+  def test_successful_purchase_sans_cvv
+    @credit_card.verification_value = ""
+    assert response = @gateway.purchase(@amount, @credit_card, @options)
+    assert_success response
+  end
+
   def test_successful_purchase_with_echeck
+    assert response = @gateway.purchase(@amount, @check, @options)
+    assert response.test?
+    assert_success response
+    assert !response.authorization.blank?
+  end
+
+  def test_successful_purchase_with_echeck_no_address
+    @options.delete(:billing_address)
     assert response = @gateway.purchase(@amount, @check, @options)
     assert response.test?
     assert_success response
@@ -45,6 +69,33 @@ class RemoteTransFirstTest < Test::Unit::TestCase
     assert_failure response
     assert_equal 'Insufficient funds', response.message
   end
+
+  def test_successful_void
+    assert purchase = @gateway.purchase(@amount, @credit_card, @options)
+    assert_success purchase
+
+    assert void = @gateway.void(purchase.authorization)
+    assert_success void
+  end
+
+  # Refunds can only be successfully run on settled transactions which take 24 hours 
+  # def test_successful_refund
+  #   assert purchase = @gateway.purchase(@amount, @credit_card, @options)
+  #   assert_success purchase
+
+  #   assert refund = @gateway.refund(@amount, purchase.authorization)
+  #   assert_equal @amount, refund.params["amount"].to_i*100
+  #   assert_success refund
+  # end
+
+  # def test_successful_partial_refund
+  #   assert purchase = @gateway.purchase(@amount, @credit_card, @options)
+  #   assert_success purchase
+
+  #   assert refund = @gateway.refund(@amount-1, purchase.authorization)
+  #   assert_equal @amount-1, refund.params["amount"].to_i*100
+  #   assert_success refund
+  # end
 
   def test_successful_refund_with_echeck
     assert purchase = @gateway.purchase(@amount, @check, @options)

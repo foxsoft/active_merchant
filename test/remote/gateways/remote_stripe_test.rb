@@ -10,6 +10,13 @@ class RemoteStripeTest < Test::Unit::TestCase
     @new_credit_card = credit_card('5105105105105100')
     @debit_card = credit_card('4000056655665556')
 
+    @check = check({
+      bank_name: "STRIPE TEST BANK",
+      account_number: "000123456789",
+      routing_number: "110000000",
+    })
+    @verified_bank_account = fixtures(:stripe_verified_bank_account)
+
     @options = {
       :currency => "USD",
       :description => 'ActiveMerchant Test Purchase',
@@ -67,6 +74,24 @@ class RemoteStripeTest < Test::Unit::TestCase
     assert_match /ch_[a-zA-Z\d]+/, response.authorization
   end
 
+  def test_successful_echeck_purchase_with_verified_account
+    customer_id = @verified_bank_account[:customer_id]
+    bank_account_id = @verified_bank_account[:bank_account_id]
+
+    payment = [customer_id, bank_account_id].join('|')
+
+    response = @gateway.purchase(@amount, payment, @options)
+    assert_success response
+    assert response.test?
+    assert_equal "Transaction approved", response.message
+  end
+
+  def test_unsuccessful_direct_bank_account_purchase
+    response = @gateway.purchase(@amount, @check, @options)
+    assert_failure response
+    assert_equal "Direct bank account transactions are not supported. Bank accounts must be stored and verified before use.", response.message
+  end
+
   def test_authorization_and_capture
     assert authorization = @gateway.authorize(@amount, @credit_card, @options)
     assert_success authorization
@@ -96,6 +121,17 @@ class RemoteStripeTest < Test::Unit::TestCase
     assert_success void
   end
 
+  def test_successful_void_with_metadata
+    assert response = @gateway.authorize(@amount, @credit_card, @options)
+    assert_success response
+    assert response.authorization
+
+    assert void = @gateway.void(response.authorization, metadata: { test_metadata: 123 })
+    assert void.test?
+    assert_success void
+    assert_equal "123", void.params["metadata"]["test_metadata"]
+  end
+
   def test_unsuccessful_void
     assert void = @gateway.void("active_merchant_fake_charge")
     assert_failure void
@@ -111,6 +147,21 @@ class RemoteStripeTest < Test::Unit::TestCase
     refund_id = refund.params["id"]
     assert_equal refund.authorization, refund_id
     assert_success refund
+  end
+
+  def test_successful_refund_on_verified_bank_account
+    customer_id = @verified_bank_account[:customer_id]
+    bank_account_id = @verified_bank_account[:bank_account_id]
+    payment = [customer_id, bank_account_id].join('|')
+
+    purchase = @gateway.purchase(@amount, payment, @options)
+    assert_success purchase
+
+    refund = @gateway.refund(@amount, purchase.authorization)
+    assert_success refund
+    assert refund.test?
+    refund_id = refund.params["id"]
+    assert_equal refund.authorization, refund_id
   end
 
   def test_refund_with_reverse_transfer
@@ -138,6 +189,90 @@ class RemoteStripeTest < Test::Unit::TestCase
     assert_equal "charge", response.params["object"]
     assert_success response.responses.last, "The void should succeed"
     assert_equal "refund", response.responses.last.params["object"]
+  end
+
+  def test_successful_verify_cad
+    assert response = @gateway.verify(@credit_card, @options.merge(currency: "cad"))
+    assert_success response
+    assert_equal 100, response.params["amount"]
+    assert_equal "cad", response.params["currency"]
+  end
+
+  def test_successful_verify_gbp
+    assert response = @gateway.verify(@credit_card, @options.merge(currency: "gbp"))
+    assert_success response
+    assert_equal 60, response.params["amount"]
+    assert_equal "gbp", response.params["currency"]
+  end
+
+  def test_successful_verify_eur
+    assert response = @gateway.verify(@credit_card, @options.merge(currency: "eur"))
+    assert_success response
+    assert_equal 100, response.params["amount"]
+    assert_equal "eur", response.params["currency"]
+  end
+
+  def test_successful_verify_dkk
+    assert response = @gateway.verify(@credit_card, @options.merge(currency: "dkk"))
+    assert_success response
+    assert_equal 500, response.params["amount"]
+    assert_equal "dkk", response.params["currency"]
+  end
+
+  def test_successful_verify_nok
+    assert response = @gateway.verify(@credit_card, @options.merge(currency: "nok"))
+    assert_success response
+    assert_equal 600, response.params["amount"]
+    assert_equal "nok", response.params["currency"]
+  end
+
+  def test_successful_verify_sek
+    assert response = @gateway.verify(@credit_card, @options.merge(currency: "sek"))
+    assert_success response
+    assert_equal 600, response.params["amount"]
+    assert_equal "sek", response.params["currency"]
+  end
+
+  def test_successful_verify_chf
+    assert response = @gateway.verify(@credit_card, @options.merge(currency: "chf"))
+    assert_success response
+    assert_equal 100, response.params["amount"]
+    assert_equal "chf", response.params["currency"]
+  end
+
+  def test_successful_verify_aud
+    assert response = @gateway.verify(@credit_card, @options.merge(currency: "aud"))
+    assert_success response
+    assert_equal 100, response.params["amount"]
+    assert_equal "aud", response.params["currency"]
+  end
+
+  def test_successful_verify_jpy
+    assert response = @gateway.verify(@credit_card, @options.merge(currency: "jpy"))
+    assert_success response
+    assert_equal 100, response.params["amount"]
+    assert_equal "jpy", response.params["currency"]
+  end
+
+  def test_successful_verify_mxn
+    assert response = @gateway.verify(@credit_card, @options.merge(currency: "mxn"))
+    assert_success response
+    assert_equal 2000, response.params["amount"]
+    assert_equal "mxn", response.params["currency"]
+  end
+
+  def test_successful_verify_sgd
+    assert response = @gateway.verify(@credit_card, @options.merge(currency: "sgd"))
+    assert_success response
+    assert_equal 100, response.params["amount"]
+    assert_equal "sgd", response.params["currency"]
+  end
+
+  def test_successful_verify_hkd
+    assert response = @gateway.verify(@credit_card, @options.merge(currency: "hkd"))
+    assert_success response
+    assert_equal 800, response.params["amount"]
+    assert_equal "hkd", response.params["currency"]
   end
 
   def test_unsuccessful_verify
@@ -249,6 +384,37 @@ class RemoteStripeTest < Test::Unit::TestCase
     end
   end
 
+  def test_successful_store_of_bank_account
+    response = @gateway.store(@check, @options)
+    assert_success response
+    customer_id, bank_account_id = response.authorization.split('|')
+    assert_match /^cus_/, customer_id
+    assert_match /^ba_/, bank_account_id
+  end
+
+  def test_unsuccessful_purchase_from_stored_but_unverified_bank_account
+    store = @gateway.store(@check)
+    assert_success store
+
+    purchase = @gateway.purchase(@amount, store.authorization, @options)
+    assert_failure purchase
+    assert_match "The customer's bank account must be verified", purchase.message
+  end
+
+  def test_successful_purchase_from_stored_and_verified_bank_account
+    store = @gateway.store(@check)
+    assert_success store
+
+    # verify the account using special test amounts from Stripe
+    # https://stripe.com/docs/guides/ach#manually-collecting-and-verifying-bank-accounts
+    customer_id, bank_account_id = store.authorization.split('|')
+    verify_url = "customers/#{customer_id}/sources/#{bank_account_id}/verify"
+    verify_response = @gateway.send(:api_request, :post, verify_url, { amounts: [32, 45] })
+    assert_match "verified", verify_response["status"]
+
+    purchase = @gateway.purchase(@amount, store.authorization, @options)
+    assert_success purchase
+  end
 
   def test_invalid_login
     gateway = StripeGateway.new(:login => 'active_merchant_test')
@@ -365,6 +531,19 @@ class RemoteStripeTest < Test::Unit::TestCase
     assert response = @gateway.purchase(@amount, @credit_card, statement_description: "Eggcellent Description")
     assert_success response
     assert_equal "Eggcellent Description", response.params["statement_descriptor"]
+  end
+
+  def test_stripe_account_header
+    account = fixtures(:stripe_destination)[:stripe_user_id]
+    assert response = @gateway.purchase(@amount, @credit_card, stripe_account: account)
+    assert_success response
+  end
+
+  def test_verify_credentials
+    assert @gateway.verify_credentials
+
+    gateway = StripeGateway.new(login: 'an_unknown_api_key')
+    assert !gateway.verify_credentials
   end
 
 end

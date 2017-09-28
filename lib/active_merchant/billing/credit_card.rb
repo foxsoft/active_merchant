@@ -182,10 +182,15 @@ module ActiveMerchant #:nodoc:
       # @return [String]
       attr_accessor :fallback_reason
 
-      # Returns or sets whether card-present card data has been read contactlessly.
+      # Returns or sets whether card-present EMV data has been read contactlessly.
       #
       # @return [true, false]
-      attr_accessor :contactless
+      attr_accessor :contactless_emv
+
+      # Returns or sets whether card-present magstripe data has been read contactlessly.
+      #
+      # @return [true, false]
+      attr_accessor :contactless_magstripe
 
       # Returns the ciphertext of the card's encrypted PIN.
       #
@@ -240,7 +245,7 @@ module ActiveMerchant #:nodoc:
       #
       # @return [String] the full name of the card holder
       def name
-        [first_name, last_name].compact.join(' ')
+        "#{first_name} #{last_name}".strip
       end
 
       def name=(full_name)

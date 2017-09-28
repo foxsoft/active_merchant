@@ -1,4 +1,5 @@
 module ActiveMerchant #:nodoc:
+
   module Billing #:nodoc:
     class TransFirstGateway < Gateway
       self.test_url = 'https://ws.cert.transfirst.com'
@@ -16,7 +17,7 @@ module ActiveMerchant #:nodoc:
       ACTIONS = {
         purchase: "CCSale",
         purchase_echeck: "ACHDebit",
-        refund: "CreditCardAutoRefundorVoid",
+        refund: "CreditCardCredit",
         refund_echeck: "ACHVoidTransaction",
         void: "CreditCardAutoRefundorVoid",
       }
@@ -38,24 +39,28 @@ module ActiveMerchant #:nodoc:
         post = {}
 
         add_amount(post, money)
-        add_invoice(post, options)
         add_payment(post, payment)
         add_address(post, options)
+        add_invoice(post, options) if payment.credit_card?
+        add_pair(post, :RefID, options[:order_id], required: true)
 
         commit((payment.is_a?(Check) ? :purchase_echeck : :purchase), post)
       end
 
       def refund(money, authorization, options={})
         post = {}
+
         transaction_id, payment_type = split_authorization(authorization)
         add_amount(post, money)
-        add_invoice(post, options)
         add_pair(post, :TransID, transaction_id)
+        add_pair(post, :RefID, options[:order_id], required: true)
+
         commit((payment_type == "check" ? :refund_echeck : :refund), post)
       end
 
       def void(authorization, options={})
         post = {}
+
         transaction_id, _ = split_authorization(authorization)
         add_pair(post, :TransID, transaction_id)
 
@@ -85,13 +90,15 @@ module ActiveMerchant #:nodoc:
         address = options[:billing_address] || options[:address]
 
         if address
-          add_pair(post, :Address, address[:address1])
-          add_pair(post, :ZipCode, address[:zip])
+          add_pair(post, :Address, address[:address1], required: true)
+          add_pair(post, :ZipCode, address[:zip], required: true)
+        else
+          add_pair(post, :Address, "", required: true)
+          add_pair(post, :ZipCode, "", required: true)
         end
       end
 
       def add_invoice(post, options)
-        add_pair(post, :RefID, options[:order_id], required: true)
         add_pair(post, :SECCCode, options[:invoice], required: true)
         add_pair(post, :PONumber, options[:invoice], required: true)
         add_pair(post, :SaleTaxAmount, amount(options[:tax] || 0))
@@ -112,7 +119,7 @@ module ActiveMerchant #:nodoc:
         add_pair(post, :CardHolderName, payment.name, required: true)
         add_pair(post, :CardNumber, payment.number, required: true)
         add_pair(post, :Expiration, expdate(payment), required: true)
-        add_pair(post, :CVV2, payment.verification_value)
+        add_pair(post, :CVV2, payment.verification_value, required: true)
       end
 
       def add_echeck(post, payment)
@@ -130,8 +137,8 @@ module ActiveMerchant #:nodoc:
         return default_value
       end
 
-      def add_unused_fields(post)
-        return if post[:TransRoute]
+      def add_unused_fields(action, post)
+        return unless action == :purchase
 
         UNUSED_CREDIT_CARD_FIELDS.each do |f|
           post[f] = ""
@@ -163,8 +170,7 @@ module ActiveMerchant #:nodoc:
       end
 
       def commit(action, params)
-        response = parse(ssl_post(url(action), post_data(params)))
-
+        response = parse(ssl_post(url(action), post_data(action, params)))
         Response.new(
           success_from(response),
           message_from(response),
@@ -208,8 +214,8 @@ module ActiveMerchant #:nodoc:
         end
       end
 
-      def post_data(params = {})
-        add_unused_fields(params)
+      def post_data(action, params = {})
+        add_unused_fields(action, params)
         params[:MerchantID] = @options[:login]
         params[:RegKey] = @options[:password]
 
@@ -232,4 +238,3 @@ module ActiveMerchant #:nodoc:
     end
   end
 end
-
